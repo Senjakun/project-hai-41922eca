@@ -12,6 +12,7 @@ import telebot
 from telebot import types
 import json
 import os
+import subprocess
 
 # ==================== KONFIGURASI ====================
 BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"  # Ganti di VPS, jangan di sini!
@@ -334,8 +335,17 @@ def install_command(message):
 
         bot.reply_to(message, f"⏳ Memulai instalasi RDP...\nIP: {ip}")
 
-        # Jalankan script instalasi
-        os.system(f"chmod +x rdp.sh && ./rdp.sh {ip} {password} &")
+        # Jalankan script instalasi (pakai path absolut agar tidak tergantung folder saat menjalankan bot)
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        script_path = os.path.join(script_dir, "rdp.sh")
+
+        if not os.path.exists(script_path):
+            bot.reply_to(message, "❌ File rdp.sh tidak ditemukan (telegram_bot/rdp.sh). Pastikan sudah git pull.")
+            return
+
+        subprocess.run(["chmod", "+x", script_path], check=False)
+        with open(os.path.join(script_dir, "rdp_install.log"), "ab") as log:
+            subprocess.Popen(["bash", script_path, ip, password], stdout=log, stderr=log, start_new_session=True)
 
         bot.send_message(message.chat.id, "✅ Proses instalasi dimulai!\nTunggu beberapa menit sampai selesai.")
 
