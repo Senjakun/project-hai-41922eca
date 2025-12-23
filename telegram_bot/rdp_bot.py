@@ -889,6 +889,84 @@ def list_tumbal(message):
     
     bot.reply_to(message, text, parse_mode="HTML")
 
+# ==================== UPDATE TUMBAL VPS ====================
+@bot.message_handler(commands=['updatetumbal'])
+def update_tumbal_cmd(message):
+    """Update existing tumbal VPS - /updatetumbal [ID] [field] [value]"""
+    if not is_owner(message.from_user.id):
+        bot.reply_to(message, "⛔ Hanya owner!")
+        return
+
+    try:
+        parts = message.text.split()
+        if len(parts) < 4:
+            # Show usage
+            tumbal_list = data.get("tumbal_list", [])
+            
+            if not tumbal_list:
+                bot.reply_to(message, "❌ Belum ada tumbal VPS terdaftar.")
+                return
+            
+            text = "📝 <b>UPDATE TUMBAL VPS</b>\n━━━━━━━━━━━━━━━━━━\n\n"
+            text += "Format: <code>/updatetumbal [ID] [field] [value]</code>\n\n"
+            text += "<b>Fields yang bisa diupdate:</b>\n"
+            text += "• <code>name</code> - Nama VPS\n"
+            text += "• <code>ip</code> - IP Address\n"
+            text += "• <code>password</code> - Password\n\n"
+            text += "<b>Contoh:</b>\n"
+            text += "<code>/updatetumbal abc123 name VPS-Baru</code>\n"
+            text += "<code>/updatetumbal abc123 ip 192.168.1.100</code>\n"
+            text += "<code>/updatetumbal abc123 password newpass123</code>\n\n"
+            text += "<b>VPS Terdaftar:</b>\n"
+            for vps in tumbal_list:
+                active = "🟢" if vps.get("id") == data.get("active_tumbal") else "⚪"
+                text += f"{active} <code>{vps.get('id')}</code> - {vps.get('name')} ({vps.get('ip')})\n"
+            
+            bot.reply_to(message, text, parse_mode="HTML")
+            return
+        
+        tumbal_id = parts[1]
+        field = parts[2].lower()
+        value = " ".join(parts[3:])
+        
+        valid_fields = ["name", "ip", "password"]
+        if field not in valid_fields:
+            bot.reply_to(message, f"❌ Field tidak valid!\nGunakan: {', '.join(valid_fields)}")
+            return
+        
+        tumbal_list = data.get("tumbal_list", [])
+        
+        # Find and update VPS
+        found = False
+        old_value = ""
+        for vps in tumbal_list:
+            if vps.get("id") == tumbal_id:
+                old_value = vps.get(field, "N/A")
+                vps[field] = value
+                found = True
+                break
+        
+        if not found:
+            bot.reply_to(message, f"❌ Tumbal VPS dengan ID <code>{tumbal_id}</code> tidak ditemukan.", parse_mode="HTML")
+            return
+        
+        data["tumbal_list"] = tumbal_list
+        save_data(data)
+        
+        # Mask password in response
+        display_value = value if field != "password" else "********"
+        display_old = old_value if field != "password" else "********"
+        
+        bot.reply_to(message, f"""✅ <b>Tumbal VPS Updated!</b>
+
+🔑 <b>ID:</b> <code>{tumbal_id}</code>
+📝 <b>Field:</b> <code>{field}</code>
+📤 <b>Lama:</b> <code>{display_old}</code>
+📥 <b>Baru:</b> <code>{display_value}</code>""", parse_mode="HTML")
+        
+    except Exception as e:
+        bot.reply_to(message, f"❌ Error: {str(e)}")
+
 @bot.message_handler(commands=['settumbal'])
 def set_tumbal_legacy(message):
     """Legacy command - redirect to addtumbal"""
