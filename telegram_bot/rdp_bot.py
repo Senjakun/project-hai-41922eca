@@ -57,6 +57,45 @@ WINDOWS_OPTIONS = {
     "13": "Tiny11 23H2"
 }
 
+# Simpan pilihan OS sementara per user (akan reset jika bot restart)
+USER_SELECTED_OS = {}
+
+WINDOWS_MENU_TEXT = """🖥 <b>Silahkan Pilih Versi Windows Anda</b> 🖥
+
+1 Windows Server 2012 R2
+2 Windows Server 2016
+3 Windows Server 2019
+4 Windows Server 2022
+5 Windows Server 2025
+6 Windows 10 SuperLite
+7 Windows 11 SuperLite
+8 Windows 10 Atlas
+9 Windows 11 Atlas
+10 Windows 10 Pro
+11 Windows 11 Pro
+12 Tiny10 23H2
+13 Tiny11 23H2
+
+Silahkan klik tombol OS di bawah 👇"""
+
+
+def build_windows_menu_markup():
+    markup = types.InlineKeyboardMarkup(row_width=3)
+
+    row1 = [types.InlineKeyboardButton(str(i), callback_data=f"win_{i}") for i in range(1, 4)]
+    row2 = [types.InlineKeyboardButton(str(i), callback_data=f"win_{i}") for i in range(4, 7)]
+    row3 = [types.InlineKeyboardButton(str(i), callback_data=f"win_{i}") for i in range(7, 10)]
+    row4 = [types.InlineKeyboardButton(str(i), callback_data=f"win_{i}") for i in range(10, 13)]
+
+    markup.row(*row1)
+    markup.row(*row2)
+    markup.row(*row3)
+    markup.row(*row4)
+    markup.add(types.InlineKeyboardButton("13", callback_data="win_13"))
+    markup.add(types.InlineKeyboardButton("◀️ Kembali", callback_data="back_main"))
+
+    return markup
+
 # ==================== CEK AKSES ====================
 def is_allowed(user_id):
     return user_id in data["allowed_users"] or user_id == OWNER_ID
@@ -111,38 +150,8 @@ def install_rdp_menu(call):
         bot.answer_callback_query(call.id, "⛔ Akses ditolak!")
         return
 
-    text = """🖥 <b>Silahkan Pilih Versi Windows Anda</b> 🖥
-
-1 Windows Server 2012 R2
-2 Windows Server 2016
-3 Windows Server 2019
-4 Windows Server 2022
-5 Windows Server 2025
-6 Windows 10 SuperLite
-7 Windows 11 SuperLite
-8 Windows 10 Atlas
-9 Windows 11 Atlas
-10 Windows 10 Pro
-11 Windows 11 Pro
-12 Tiny10 23H2
-13 Tiny11 23H2
-
-Silahkan klik tombol OS di bawah 👇"""
-
-    markup = types.InlineKeyboardMarkup(row_width=3)
-
-    # Baris 1-4 (tombol 1-12)
-    row1 = [types.InlineKeyboardButton(str(i), callback_data=f"win_{i}") for i in range(1, 4)]
-    row2 = [types.InlineKeyboardButton(str(i), callback_data=f"win_{i}") for i in range(4, 7)]
-    row3 = [types.InlineKeyboardButton(str(i), callback_data=f"win_{i}") for i in range(7, 10)]
-    row4 = [types.InlineKeyboardButton(str(i), callback_data=f"win_{i}") for i in range(10, 13)]
-
-    markup.row(*row1)
-    markup.row(*row2)
-    markup.row(*row3)
-    markup.row(*row4)
-    markup.add(types.InlineKeyboardButton("13", callback_data="win_13"))
-    markup.add(types.InlineKeyboardButton("◀️ Kembali", callback_data="back_main"))
+    text = WINDOWS_MENU_TEXT
+    markup = build_windows_menu_markup()
 
     bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
 
@@ -156,19 +165,24 @@ def select_windows(call):
     win_num = call.data.replace("win_", "")
     win_name = WINDOWS_OPTIONS.get(win_num, "Unknown")
 
-    text = f"""✅ <b>Windows Dipilih:</b> {win_name}
+    # Simpan pilihan OS user untuk dipakai saat /install
+    USER_SELECTED_OS[call.from_user.id] = {"code": win_num, "name": win_name}
+
+    text = f"""✅ <b>Windows Dipilih:</b> {win_name} (<code>{win_num}</code>)
 
 Sekarang kirim IP dan Password VPS dengan format:
 <code>/install IP PASSWORD</code>
 
-Contoh: <code>/install 123.456.78.90 password123</code>"""
+Contoh: <code>/install 167.71.123.45 password123</code>
+
+(Opsional) Kamu juga bisa pakai format:
+<code>/install IP PASSWORD {win_num}</code>"""
 
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("◀️ Kembali", callback_data="install_rdp"))
 
     bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
 
-    # Simpan pilihan user (opsional)
     bot.answer_callback_query(call.id, f"✅ Dipilih: {win_name}")
 
 # ==================== BACK TO MAIN ====================
@@ -333,7 +347,28 @@ def install_command(message):
         ip = parts[1]
         password = parts[2]
 
-        bot.reply_to(message, f"⏳ Memulai instalasi RDP...\nIP: {ip}")
+        # WIN_CODE bisa diambil dari argumen ke-3 atau dari pilihan terakhir user
+        win_code = parts[3] if len(parts) >= 4 else None
+        if not win_code:
+            saved = USER_SELECTED_OS.get(message.from_user.id)
+            win_code = saved.get("code") if saved else None
+
+        if not win_code or win_code not in WINDOWS_OPTIONS:
+            bot.reply_to(
+                message,
+                "❗ Kamu belum memilih OS. Pilih OS dulu di bawah ini, lalu ulangi: <code>/install IP PASSWORD</code>",
+                parse_mode="HTML",
+            )
+            bot.send_message(
+                message.chat.id,
+                WINDOWS_MENU_TEXT,
+                parse_mode="HTML",
+                reply_markup=build_windows_menu_markup(),
+            )
+            return
+
+        win_name = WINDOWS_OPTIONS[win_code]
+        bot.reply_to(message, f"⏳ Memulai instalasi RDP...\nIP: {ip}\nWindows: {win_name} ({win_code})")
 
         # Jalankan script instalasi (pakai path absolut agar tidak tergantung folder saat menjalankan bot)
         script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -345,12 +380,17 @@ def install_command(message):
 
         subprocess.run(["chmod", "+x", script_path], check=False)
         with open(os.path.join(script_dir, "rdp_install.log"), "ab") as log:
-            subprocess.Popen(["bash", script_path, ip, password], stdout=log, stderr=log, start_new_session=True)
+            subprocess.Popen(
+                ["bash", script_path, ip, password, win_code],
+                stdout=log,
+                stderr=log,
+                start_new_session=True,
+            )
 
         bot.send_message(message.chat.id, "✅ Proses instalasi dimulai!\nTunggu beberapa menit sampai selesai.")
 
-    except:
-        bot.reply_to(message, "❌ Format: /install [IP] [PASSWORD]\nContoh: /install 123.456.78.90 password123")
+    except Exception:
+        bot.reply_to(message, "❌ Format: /install [IP] [PASSWORD]\nContoh: /install 167.71.123.45 password123")
 
 # ==================== RUN BOT ====================
 if __name__ == "__main__":
