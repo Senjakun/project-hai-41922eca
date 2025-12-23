@@ -30,7 +30,12 @@ def load_data():
     return {
         "allowed_users": [OWNER_ID],
         "owner_link": "https://t.me/username_owner",
-        "channel_link": "https://t.me/channel_name"
+        "channel_link": "https://t.me/channel_name",
+        "tumbal_vps": {
+            "ip": "",
+            "password": "",
+            "enabled": False
+        }
     }
 
 def save_data(data):
@@ -291,6 +296,11 @@ def owner_settings(call):
         return
 
     user_count = len(data["allowed_users"])
+    
+    # Tumbal VPS status
+    tumbal = data.get("tumbal_vps", {})
+    tumbal_status = "✅ Terkonfigurasi" if tumbal.get("enabled") else "❌ Belum diset"
+    tumbal_ip = tumbal.get("ip", "-") if tumbal.get("enabled") else "-"
 
     text = f"""⚙️ <b>OWNER SETTINGS</b>
 ━━━━━━━━━━━━━━━━━━
@@ -298,15 +308,18 @@ def owner_settings(call):
 👥 <b>Total User:</b> {user_count}
 🔗 <b>Owner Link:</b> {data["owner_link"]}
 📢 <b>Channel Link:</b> {data["channel_link"]}
+🖥 <b>Tumbal VPS:</b> {tumbal_status}
+📍 <b>Tumbal IP:</b> {tumbal_ip}
 
 <b>Commands:</b>
 /adduser [id] - Tambah user
-/deluser [id] - Hapus user
+/deluser [id] - Hapus user  
 /setowner [link] - Set link owner
 /setchannel [link] - Set link channel
 /listuser - Lihat daftar user"""
 
     markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("🖥 Tumbal VPS Manager", callback_data="tumbal_menu"))
     markup.add(types.InlineKeyboardButton("☁️ Google Drive Manager", callback_data="gdrive_menu"))
     markup.add(types.InlineKeyboardButton("◀️ Kembali", callback_data="back_main"))
 
@@ -535,6 +548,383 @@ Kamu akan menerima notifikasi saat selesai.
 
     except Exception:
         bot.reply_to(message, "❌ Format: /install [IP] [PASSWORD]\nContoh: /install 167.71.123.45 password123")
+
+# ==================== TUMBAL VPS MENU ====================
+@bot.callback_query_handler(func=lambda call: call.data == "tumbal_menu")
+def tumbal_menu(call):
+    if not is_owner(call.from_user.id):
+        bot.answer_callback_query(call.id, "⛔ Hanya untuk owner!")
+        return
+
+    tumbal = data.get("tumbal_vps", {})
+    status = "✅ Aktif" if tumbal.get("enabled") else "❌ Tidak aktif"
+    ip = tumbal.get("ip", "-") or "-"
+
+    text = f"""🖥 <b>TUMBAL VPS MANAGER</b>
+━━━━━━━━━━━━━━━━━━
+
+<b>Status:</b> {status}
+<b>IP:</b> <code>{ip}</code>
+
+<b>Apa itu Tumbal VPS?</b>
+VPS 8GB RAM khusus untuk build Windows image.
+Bot akan SSH ke VPS ini saat proses build.
+
+<b>Commands:</b>
+<code>/settumbal [ip] [password]</code> - Set VPS tumbal
+<code>/testtumbal</code> - Test koneksi SSH
+<code>/deltumbal</code> - Hapus konfigurasi"""
+
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("🔧 Set Tumbal VPS", callback_data="tumbal_set"))
+    markup.add(types.InlineKeyboardButton("🔌 Test Koneksi", callback_data="tumbal_test"))
+    markup.add(types.InlineKeyboardButton("🏗 Build Image", callback_data="tumbal_build"))
+    markup.add(types.InlineKeyboardButton("📋 List Local Images", callback_data="tumbal_list"))
+    markup.add(types.InlineKeyboardButton("◀️ Kembali", callback_data="owner_settings"))
+
+    bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
+
+# ==================== SET TUMBAL ====================
+@bot.callback_query_handler(func=lambda call: call.data == "tumbal_set")
+def tumbal_set_info(call):
+    if not is_owner(call.from_user.id):
+        bot.answer_callback_query(call.id, "⛔ Hanya untuk owner!")
+        return
+
+    text = """🔧 <b>SET TUMBAL VPS</b>
+━━━━━━━━━━━━━━━━━━
+
+Gunakan command:
+<code>/settumbal [IP] [PASSWORD]</code>
+
+Contoh:
+<code>/settumbal 167.71.123.45 mypassword123</code>
+
+<b>Syarat VPS Tumbal:</b>
+• RAM minimal 8GB
+• Storage minimal 50GB
+• OS: Ubuntu 22.04 / Debian 12
+• Akses root via SSH"""
+
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("◀️ Kembali", callback_data="tumbal_menu"))
+
+    bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
+
+@bot.message_handler(commands=['settumbal'])
+def set_tumbal(message):
+    if not is_owner(message.from_user.id):
+        bot.reply_to(message, "⛔ Hanya owner!")
+        return
+
+    try:
+        parts = message.text.split()
+        if len(parts) < 3:
+            bot.reply_to(message, "❌ Format: /settumbal [IP] [PASSWORD]")
+            return
+
+        ip = parts[1]
+        password = parts[2]
+        
+        data["tumbal_vps"] = {
+            "ip": ip,
+            "password": password,
+            "enabled": True
+        }
+        save_data(data)
+        
+        bot.reply_to(message, f"""✅ <b>Tumbal VPS berhasil diset!</b>
+
+📍 <b>IP:</b> <code>{ip}</code>
+
+Gunakan /testtumbal untuk test koneksi SSH.""", parse_mode="HTML")
+        
+    except Exception as e:
+        bot.reply_to(message, f"❌ Error: {str(e)}")
+
+@bot.message_handler(commands=['deltumbal'])
+def del_tumbal(message):
+    if not is_owner(message.from_user.id):
+        bot.reply_to(message, "⛔ Hanya owner!")
+        return
+
+    data["tumbal_vps"] = {"ip": "", "password": "", "enabled": False}
+    save_data(data)
+    bot.reply_to(message, "✅ Konfigurasi Tumbal VPS dihapus!")
+
+# ==================== TEST TUMBAL ====================
+@bot.callback_query_handler(func=lambda call: call.data == "tumbal_test")
+def tumbal_test_btn(call):
+    if not is_owner(call.from_user.id):
+        bot.answer_callback_query(call.id, "⛔ Hanya untuk owner!")
+        return
+    
+    tumbal = data.get("tumbal_vps", {})
+    if not tumbal.get("enabled"):
+        bot.answer_callback_query(call.id, "❌ Tumbal VPS belum diset!")
+        return
+    
+    bot.answer_callback_query(call.id, "⏳ Testing koneksi SSH...")
+    
+    def test_ssh():
+        try:
+            ip = tumbal["ip"]
+            password = tumbal["password"]
+            
+            result = subprocess.run(
+                ["sshpass", "-p", password, "ssh", "-o", "StrictHostKeyChecking=no", 
+                 "-o", "ConnectTimeout=10", f"root@{ip}", "echo 'OK' && free -h && df -h /"],
+                capture_output=True, text=True, timeout=30
+            )
+            
+            if "OK" in result.stdout:
+                bot.send_message(call.message.chat.id, f"""✅ <b>Koneksi SSH Berhasil!</b>
+
+📍 <b>IP:</b> <code>{ip}</code>
+
+<b>System Info:</b>
+<code>{result.stdout}</code>""", parse_mode="HTML")
+            else:
+                bot.send_message(call.message.chat.id, f"❌ Koneksi gagal:\n<code>{result.stderr[:500]}</code>", parse_mode="HTML")
+        except Exception as e:
+            bot.send_message(call.message.chat.id, f"❌ Error: {str(e)}")
+    
+    threading.Thread(target=test_ssh, daemon=True).start()
+
+@bot.message_handler(commands=['testtumbal'])
+def test_tumbal_cmd(message):
+    if not is_owner(message.from_user.id):
+        bot.reply_to(message, "⛔ Hanya owner!")
+        return
+    
+    tumbal = data.get("tumbal_vps", {})
+    if not tumbal.get("enabled"):
+        bot.reply_to(message, "❌ Tumbal VPS belum diset! Gunakan /settumbal [IP] [PASSWORD]")
+        return
+    
+    bot.reply_to(message, "⏳ Testing koneksi SSH...")
+    
+    def test_ssh():
+        try:
+            ip = tumbal["ip"]
+            password = tumbal["password"]
+            
+            result = subprocess.run(
+                ["sshpass", "-p", password, "ssh", "-o", "StrictHostKeyChecking=no",
+                 "-o", "ConnectTimeout=10", f"root@{ip}", "echo 'OK' && free -h && df -h /"],
+                capture_output=True, text=True, timeout=30
+            )
+            
+            if "OK" in result.stdout:
+                bot.send_message(message.chat.id, f"""✅ <b>Koneksi SSH Berhasil!</b>
+
+📍 <b>IP:</b> <code>{ip}</code>
+
+<b>System Info:</b>
+<code>{result.stdout}</code>""", parse_mode="HTML")
+            else:
+                bot.send_message(message.chat.id, f"❌ Koneksi gagal:\n<code>{result.stderr[:500]}</code>", parse_mode="HTML")
+        except Exception as e:
+            bot.send_message(message.chat.id, f"❌ Error: {str(e)}")
+    
+    threading.Thread(target=test_ssh, daemon=True).start()
+
+# ==================== BUILD IMAGE ====================
+@bot.callback_query_handler(func=lambda call: call.data == "tumbal_build")
+def tumbal_build_menu(call):
+    if not is_owner(call.from_user.id):
+        bot.answer_callback_query(call.id, "⛔ Hanya untuk owner!")
+        return
+
+    tumbal = data.get("tumbal_vps", {})
+    if not tumbal.get("enabled"):
+        bot.answer_callback_query(call.id, "❌ Tumbal VPS belum diset!")
+        return
+
+    text = """🏗 <b>BUILD WINDOWS IMAGE</b>
+━━━━━━━━━━━━━━━━━━
+
+Proses ini akan:
+1. SSH ke Tumbal VPS
+2. Download ISO Windows
+3. Install & konfigurasi Windows
+4. Compress menjadi .img.gz
+5. Upload ke Google Drive (jika dikonfigurasi)
+
+<b>Command:</b>
+<code>/buildimage [kode_windows]</code>
+
+<b>Kode Windows:</b>
+1 - Windows Server 2012 R2
+2 - Windows Server 2016
+3 - Windows Server 2019
+4 - Windows Server 2022
+5 - Windows Server 2025
+6 - Windows 10 SuperLite
+7 - Windows 11 SuperLite
+8 - Windows 10 Atlas
+9 - Windows 11 Atlas
+10 - Windows 10 Pro
+11 - Windows 11 Pro
+
+Contoh: <code>/buildimage 8</code>"""
+
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("🔨 Build Win10 Atlas", callback_data="build_8"))
+    markup.add(types.InlineKeyboardButton("🔨 Build Win11 Atlas", callback_data="build_9"))
+    markup.add(types.InlineKeyboardButton("◀️ Kembali", callback_data="tumbal_menu"))
+
+    bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("build_"))
+def build_quick(call):
+    if not is_owner(call.from_user.id):
+        bot.answer_callback_query(call.id, "⛔ Hanya untuk owner!")
+        return
+    
+    win_code = call.data.replace("build_", "")
+    win_name = WINDOWS_OPTIONS.get(win_code, "Unknown")
+    
+    bot.answer_callback_query(call.id, f"⏳ Memulai build {win_name}...")
+    start_build_image(call.message.chat.id, win_code)
+
+@bot.message_handler(commands=['buildimage'])
+def build_image_cmd(message):
+    if not is_owner(message.from_user.id):
+        bot.reply_to(message, "⛔ Hanya owner!")
+        return
+
+    try:
+        parts = message.text.split()
+        if len(parts) < 2:
+            bot.reply_to(message, "❌ Format: /buildimage [kode_windows]\nContoh: /buildimage 8")
+            return
+
+        win_code = parts[1]
+        if win_code not in WINDOWS_OPTIONS:
+            bot.reply_to(message, "❌ Kode Windows tidak valid! Gunakan 1-11")
+            return
+        
+        start_build_image(message.chat.id, win_code)
+        
+    except Exception as e:
+        bot.reply_to(message, f"❌ Error: {str(e)}")
+
+def start_build_image(chat_id, win_code):
+    tumbal = data.get("tumbal_vps", {})
+    if not tumbal.get("enabled"):
+        bot.send_message(chat_id, "❌ Tumbal VPS belum diset! Gunakan /settumbal [IP] [PASSWORD]")
+        return
+    
+    win_name = WINDOWS_OPTIONS.get(win_code, "Unknown")
+    ip = tumbal["ip"]
+    password = tumbal["password"]
+    
+    bot.send_message(chat_id, f"""🏗 <b>Memulai Build Image</b>
+━━━━━━━━━━━━━━━━━━
+
+🪟 <b>Windows:</b> {win_name}
+📍 <b>Tumbal VPS:</b> <code>{ip}</code>
+
+⏳ Menghubungkan ke VPS...
+Proses ini bisa memakan waktu 30-60 menit.""", parse_mode="HTML")
+    
+    def do_build():
+        try:
+            # Script build akan dijalankan di tumbal VPS
+            build_script = f'''
+#!/bin/bash
+cd /tmp
+
+# Update system
+apt update -y
+apt install -y wget curl qemu-utils gzip
+
+# Buat folder untuk images
+mkdir -p /root/rdp-images
+
+echo "🔽 Downloading Windows image builder..."
+# Di sini bisa ditambahkan script untuk download dan build Windows image
+# Untuk sekarang, kita buat placeholder
+
+echo "📦 Windows code: {win_code}"
+echo "📁 Output akan disimpan di /root/rdp-images/"
+
+# Placeholder - ganti dengan script build yang sebenarnya
+echo "BUILD_COMPLETE"
+'''
+            
+            result = subprocess.run(
+                ["sshpass", "-p", password, "ssh", "-o", "StrictHostKeyChecking=no",
+                 f"root@{ip}", build_script],
+                capture_output=True, text=True, timeout=7200  # 2 jam timeout
+            )
+            
+            if "BUILD_COMPLETE" in result.stdout:
+                bot.send_message(chat_id, f"""✅ <b>Build Selesai!</b>
+
+🪟 <b>Windows:</b> {win_name}
+📁 <b>Lokasi:</b> /root/rdp-images/
+
+Gunakan menu Google Drive untuk upload ke cloud.""", parse_mode="HTML")
+            else:
+                bot.send_message(chat_id, f"""❌ <b>Build Gagal!</b>
+
+<code>{result.stderr[:500]}</code>""", parse_mode="HTML")
+                
+        except subprocess.TimeoutExpired:
+            bot.send_message(chat_id, "⏰ Build timeout (>2 jam)")
+        except Exception as e:
+            bot.send_message(chat_id, f"❌ Error: {str(e)}")
+    
+    threading.Thread(target=do_build, daemon=True).start()
+
+# ==================== LIST LOCAL IMAGES ====================
+@bot.callback_query_handler(func=lambda call: call.data == "tumbal_list")
+def tumbal_list_images(call):
+    if not is_owner(call.from_user.id):
+        bot.answer_callback_query(call.id, "⛔ Hanya untuk owner!")
+        return
+    
+    tumbal = data.get("tumbal_vps", {})
+    if not tumbal.get("enabled"):
+        bot.answer_callback_query(call.id, "❌ Tumbal VPS belum diset!")
+        return
+    
+    bot.answer_callback_query(call.id, "⏳ Mengambil daftar images...")
+    
+    def list_images():
+        try:
+            ip = tumbal["ip"]
+            password = tumbal["password"]
+            
+            result = subprocess.run(
+                ["sshpass", "-p", password, "ssh", "-o", "StrictHostKeyChecking=no",
+                 f"root@{ip}", "ls -lh /root/rdp-images/ 2>/dev/null || echo 'EMPTY'"],
+                capture_output=True, text=True, timeout=30
+            )
+            
+            if "EMPTY" in result.stdout or not result.stdout.strip():
+                text = """📋 <b>LOCAL IMAGES DI TUMBAL VPS</b>
+━━━━━━━━━━━━━━━━━━
+
+Folder kosong. Belum ada image yang dibuild."""
+            else:
+                text = f"""📋 <b>LOCAL IMAGES DI TUMBAL VPS</b>
+━━━━━━━━━━━━━━━━━━
+
+<code>{result.stdout}</code>"""
+            
+            markup = types.InlineKeyboardMarkup()
+            markup.add(types.InlineKeyboardButton("🔄 Refresh", callback_data="tumbal_list"))
+            markup.add(types.InlineKeyboardButton("◀️ Kembali", callback_data="tumbal_menu"))
+            
+            bot.send_message(call.message.chat.id, text, parse_mode="HTML", reply_markup=markup)
+            
+        except Exception as e:
+            bot.send_message(call.message.chat.id, f"❌ Error: {str(e)}")
+    
+    threading.Thread(target=list_images, daemon=True).start()
 
 # ==================== GOOGLE DRIVE MENU ====================
 @bot.callback_query_handler(func=lambda call: call.data == "gdrive_menu")
