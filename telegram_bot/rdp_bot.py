@@ -40,6 +40,18 @@ def save_data(data):
 bot = telebot.TeleBot(BOT_TOKEN)
 data = load_data()
 
+# ==================== RDP TYPE OPTIONS ====================
+RDP_TYPES = {
+    "docker": {
+        "name": "🐳 Docker RDP",
+        "desc": "• Instalasi cepat (10-15 menit)\n• Berbagai versi Windows tersedia\n• Port 3389 & 8006 (web interface)\n• Cocok untuk testing & development"
+    },
+    "dedicated": {
+        "name": "🖥 Dedicated RDP", 
+        "desc": "• Windows langsung di VPS (15-30 menit)\n• Performa optimal\n• Port 3389\n• Cocok untuk production use"
+    }
+}
+
 # ==================== WINDOWS OPTIONS ====================
 WINDOWS_OPTIONS = {
     "1": "Windows Server 2012 R2",
@@ -57,8 +69,24 @@ WINDOWS_OPTIONS = {
     "13": "Tiny11 23H2"
 }
 
-# Simpan pilihan OS sementara per user (akan reset jika bot restart)
+# Simpan pilihan user (OS dan tipe RDP)
 USER_SELECTED_OS = {}
+USER_SELECTED_TYPE = {}
+
+# ==================== MENU TEXT ====================
+RDP_TYPE_MENU_TEXT = """🖥 <b>Pilih Jenis RDP Installation:</b>
+
+🐳 <b>Docker RDP</b> - 1 kuota
+• Instalasi cepat (10-15 menit)
+• Berbagai versi Windows tersedia
+• Port 3389 & 8006 (web interface)
+• Cocok untuk testing & development
+
+🖥 <b>Dedicated RDP</b> - 1 kuota
+• Windows langsung di VPS (15-30 menit)
+• Performa optimal
+• Port 3389
+• Cocok untuk production use"""
 
 WINDOWS_MENU_TEXT = """🖥 <b>Silahkan Pilih Versi Windows Anda</b> 🖥
 
@@ -79,6 +107,14 @@ WINDOWS_MENU_TEXT = """🖥 <b>Silahkan Pilih Versi Windows Anda</b> 🖥
 Silahkan klik tombol OS di bawah 👇"""
 
 
+def build_rdp_type_markup():
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("🐳 Docker RDP (1 kuota)", callback_data="rdp_type_docker"))
+    markup.add(types.InlineKeyboardButton("🖥 Dedicated RDP (1 kuota)", callback_data="rdp_type_dedicated"))
+    markup.add(types.InlineKeyboardButton("🏠 Kembali ke Menu", callback_data="back_main"))
+    return markup
+
+
 def build_windows_menu_markup():
     markup = types.InlineKeyboardMarkup(row_width=3)
 
@@ -92,7 +128,7 @@ def build_windows_menu_markup():
     markup.row(*row3)
     markup.row(*row4)
     markup.add(types.InlineKeyboardButton("13", callback_data="win_13"))
-    markup.add(types.InlineKeyboardButton("◀️ Kembali", callback_data="back_main"))
+    markup.add(types.InlineKeyboardButton("◀️ Kembali", callback_data="install_rdp"))
 
     return markup
 
@@ -150,9 +186,27 @@ def install_rdp_menu(call):
         bot.answer_callback_query(call.id, "⛔ Akses ditolak!")
         return
 
+    text = RDP_TYPE_MENU_TEXT
+    markup = build_rdp_type_markup()
+
+    bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
+
+# ==================== PILIH TIPE RDP ====================
+@bot.callback_query_handler(func=lambda call: call.data.startswith("rdp_type_"))
+def select_rdp_type(call):
+    if not is_allowed(call.from_user.id):
+        bot.answer_callback_query(call.id, "⛔ Akses ditolak!")
+        return
+
+    rdp_type = call.data.replace("rdp_type_", "")
+    USER_SELECTED_TYPE[call.from_user.id] = rdp_type
+    
+    type_name = RDP_TYPES[rdp_type]["name"]
+    bot.answer_callback_query(call.id, f"✅ Dipilih: {type_name}")
+    
     text = WINDOWS_MENU_TEXT
     markup = build_windows_menu_markup()
-
+    
     bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
 
 # ==================== PILIH WINDOWS ====================
@@ -164,19 +218,23 @@ def select_windows(call):
 
     win_num = call.data.replace("win_", "")
     win_name = WINDOWS_OPTIONS.get(win_num, "Unknown")
+    
+    # Ambil tipe RDP yang dipilih
+    rdp_type = USER_SELECTED_TYPE.get(call.from_user.id, "docker")
+    type_name = RDP_TYPES[rdp_type]["name"]
 
     # Simpan pilihan OS user untuk dipakai saat /install
     USER_SELECTED_OS[call.from_user.id] = {"code": win_num, "name": win_name}
 
-    text = f"""✅ <b>Windows Dipilih:</b> {win_name} (<code>{win_num}</code>)
+    text = f"""✅ <b>Pilihan Anda:</b>
+    
+📦 <b>Tipe:</b> {type_name}
+🪟 <b>Windows:</b> {win_name} (<code>{win_num}</code>)
 
 Sekarang kirim IP dan Password VPS dengan format:
 <code>/install IP PASSWORD</code>
 
-Contoh: <code>/install 167.71.123.45 password123</code>
-
-(Opsional) Kamu juga bisa pakai format:
-<code>/install IP PASSWORD {win_num}</code>"""
+Contoh: <code>/install 167.71.123.45 password123</code>"""
 
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("◀️ Kembali", callback_data="install_rdp"))
@@ -361,21 +419,40 @@ def install_command(message):
             )
             bot.send_message(
                 message.chat.id,
-                WINDOWS_MENU_TEXT,
+                RDP_TYPE_MENU_TEXT,
                 parse_mode="HTML",
-                reply_markup=build_windows_menu_markup(),
+                reply_markup=build_rdp_type_markup(),
             )
             return
 
+        # Ambil tipe RDP yang dipilih
+        rdp_type = USER_SELECTED_TYPE.get(message.from_user.id, "docker")
+        type_name = RDP_TYPES[rdp_type]["name"]
         win_name = WINDOWS_OPTIONS[win_code]
-        status_msg = bot.reply_to(message, f"⏳ Memulai instalasi RDP...\nIP: <code>{ip}</code>\nWindows: {win_name} ({win_code})\n\n⌛ Mohon tunggu, proses ini membutuhkan beberapa menit...", parse_mode="HTML")
+        
+        status_msg = bot.reply_to(
+            message, 
+            f"""⏳ <b>Memulai Instalasi RDP...</b>
+━━━━━━━━━━━━━━━━━━
 
-        # Jalankan script instalasi (pakai path absolut agar tidak tergantung folder saat menjalankan bot)
+📦 <b>Tipe:</b> {type_name}
+📍 <b>IP:</b> <code>{ip}</code>
+🪟 <b>Windows:</b> {win_name} ({win_code})
+
+⌛ Mohon tunggu, proses ini membutuhkan beberapa menit...""", 
+            parse_mode="HTML"
+        )
+
+        # Jalankan script instalasi berdasarkan tipe
         script_dir = os.path.dirname(os.path.abspath(__file__))
-        script_path = os.path.join(script_dir, "rdp.sh")
+        
+        if rdp_type == "docker":
+            script_path = os.path.join(script_dir, "rdp_docker.sh")
+        else:
+            script_path = os.path.join(script_dir, "rdp_dedicated.sh")
 
         if not os.path.exists(script_path):
-            bot.reply_to(message, "❌ File rdp.sh tidak ditemukan (telegram_bot/rdp.sh). Pastikan sudah git pull.")
+            bot.reply_to(message, f"❌ File {os.path.basename(script_path)} tidak ditemukan. Pastikan sudah git pull.")
             return
 
         subprocess.run(["chmod", "+x", script_path], check=False)
@@ -386,7 +463,7 @@ def install_command(message):
                 ["bash", script_path, ip, password, win_code],
                 capture_output=True,
                 text=True,
-                timeout=600  # 10 menit timeout
+                timeout=1800  # 30 menit timeout untuk dedicated
             )
             
             output = result.stdout + result.stderr
@@ -396,25 +473,50 @@ def install_command(message):
             log_path = os.path.join(script_dir, "rdp_install.log")
             with open(log_path, "a") as log:
                 log.write(f"\n{'='*50}\n")
-                log.write(f"User: {message.from_user.id} | IP: {ip} | OS: {win_code}\n")
+                log.write(f"User: {message.from_user.id} | IP: {ip} | OS: {win_code} | Type: {rdp_type}\n")
                 log.write(output)
                 log.write(f"\nExit code: {exit_code}\n")
             
             # Kirim hasil ke user
             if exit_code == 0:
-                success_text = f"""✅ <b>INSTALASI BERHASIL!</b>
+                if rdp_type == "docker":
+                    success_text = f"""✅ <b>INSTALASI BERHASIL!</b>
 ━━━━━━━━━━━━━━━━━━
 
+📦 <b>Tipe:</b> {type_name}
 📍 <b>IP:</b> <code>{ip}</code>
 🪟 <b>Windows:</b> {win_name}
 
 🎉 RDP sudah terinstall!
-Gunakan Remote Desktop untuk connect.
+
+<b>Akses RDP:</b>
+• IP: <code>{ip}</code>
+• Port RDP: <code>3389</code>
+• Port Web: <code>8006</code>
 
 <b>Kredensial Default:</b>
 • Username: <code>Administrator</code>
 • Password: <code>{password}</code>
-• Port: <code>3389</code>"""
+
+<b>Web Interface:</b>
+http://{ip}:8006"""
+                else:
+                    success_text = f"""✅ <b>INSTALASI BERHASIL!</b>
+━━━━━━━━━━━━━━━━━━
+
+📦 <b>Tipe:</b> {type_name}
+📍 <b>IP:</b> <code>{ip}</code>
+🪟 <b>Windows:</b> {win_name}
+
+🎉 RDP sudah terinstall!
+
+<b>Akses RDP:</b>
+• IP: <code>{ip}</code>
+• Port: <code>3389</code>
+
+<b>Kredensial Default:</b>
+• Username: <code>Administrator</code>
+• Password: <code>{password}</code>"""
                 bot.send_message(message.chat.id, success_text, parse_mode="HTML")
             else:
                 # Deteksi jenis error
@@ -431,10 +533,15 @@ Gunakan Remote Desktop untuk connect.
                     error_reason = "❌ Koneksi terputus oleh VPS"
                 elif "No route to host" in output:
                     error_reason = "❌ VPS tidak dapat dijangkau"
+                elif "out of memory" in output.lower() or "cannot allocate" in output.lower():
+                    error_reason = "❌ VPS kehabisan RAM"
+                elif "disk" in output.lower() and "full" in output.lower():
+                    error_reason = "❌ Disk VPS penuh"
                 
                 error_text = f"""❌ <b>INSTALASI GAGAL!</b>
 ━━━━━━━━━━━━━━━━━━
 
+📦 <b>Tipe:</b> {type_name}
 📍 <b>IP:</b> <code>{ip}</code>
 🪟 <b>Windows:</b> {win_name}
 
@@ -446,17 +553,19 @@ Gunakan Remote Desktop untuk connect.
 2. Pastikan password benar
 3. Pastikan VPS menyala
 4. Pastikan port 22 (SSH) terbuka
-5. Coba lagi dalam beberapa menit"""
+5. Pastikan VPS punya RAM minimal 2GB
+6. Coba lagi dalam beberapa menit"""
                 bot.send_message(message.chat.id, error_text, parse_mode="HTML")
                 
         except subprocess.TimeoutExpired:
             timeout_text = f"""⏰ <b>TIMEOUT!</b>
 ━━━━━━━━━━━━━━━━━━
 
+📦 <b>Tipe:</b> {type_name}
 📍 <b>IP:</b> <code>{ip}</code>
 🪟 <b>Windows:</b> {win_name}
 
-Proses melebihi batas waktu 10 menit.
+Proses melebihi batas waktu.
 Kemungkinan instalasi masih berjalan di VPS.
 
 Coba cek VPS secara manual."""
