@@ -26,17 +26,47 @@ DATA_FILE = "bot_data.json"
 def load_data():
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE, 'r') as f:
-            return json.load(f)
+            loaded = json.load(f)
+            # Migrasi dari single tumbal_vps ke multiple tumbal_list
+            if "tumbal_vps" in loaded and "tumbal_list" not in loaded:
+                old_tumbal = loaded.pop("tumbal_vps")
+                if old_tumbal.get("enabled") and old_tumbal.get("ip"):
+                    loaded["tumbal_list"] = [{
+                        "id": "tumbal1",
+                        "name": "Tumbal VPS 1",
+                        "ip": old_tumbal["ip"],
+                        "password": old_tumbal["password"],
+                        "enabled": True
+                    }]
+                    loaded["active_tumbal"] = "tumbal1"
+                else:
+                    loaded["tumbal_list"] = []
+                    loaded["active_tumbal"] = ""
+            return loaded
     return {
         "allowed_users": [OWNER_ID],
         "owner_link": "https://t.me/username_owner",
         "channel_link": "https://t.me/channel_name",
-        "tumbal_vps": {
-            "ip": "",
-            "password": "",
-            "enabled": False
-        }
+        "tumbal_list": [],  # List of tumbal VPS: [{id, name, ip, password, enabled}]
+        "active_tumbal": ""  # ID of currently active tumbal VPS
     }
+
+def get_active_tumbal():
+    """Get the active tumbal VPS configuration"""
+    active_id = data.get("active_tumbal", "")
+    if not active_id:
+        return None
+    for t in data.get("tumbal_list", []):
+        if t["id"] == active_id and t.get("enabled"):
+            return t
+    return None
+
+def get_tumbal_by_id(tumbal_id):
+    """Get tumbal VPS by ID"""
+    for t in data.get("tumbal_list", []):
+        if t["id"] == tumbal_id:
+            return t
+    return None
 
 def save_data(data):
     with open(DATA_FILE, 'w') as f:
@@ -298,9 +328,10 @@ def owner_settings(call):
     user_count = len(data["allowed_users"])
     
     # Tumbal VPS status
-    tumbal = data.get("tumbal_vps", {})
-    tumbal_status = "✅ Terkonfigurasi" if tumbal.get("enabled") else "❌ Belum diset"
-    tumbal_ip = tumbal.get("ip", "-") if tumbal.get("enabled") else "-"
+    tumbal_list = data.get("tumbal_list", [])
+    tumbal_count = len(tumbal_list)
+    active_tumbal = get_active_tumbal()
+    active_info = f"✅ {active_tumbal['name']} ({active_tumbal['ip']})" if active_tumbal else "❌ Belum dipilih"
 
     text = f"""⚙️ <b>OWNER SETTINGS</b>
 ━━━━━━━━━━━━━━━━━━
@@ -308,8 +339,8 @@ def owner_settings(call):
 👥 <b>Total User:</b> {user_count}
 🔗 <b>Owner Link:</b> {data["owner_link"]}
 📢 <b>Channel Link:</b> {data["channel_link"]}
-🖥 <b>Tumbal VPS:</b> {tumbal_status}
-📍 <b>Tumbal IP:</b> {tumbal_ip}
+🖥 <b>Tumbal VPS:</b> {tumbal_count} VPS terdaftar
+📍 <b>Aktif:</b> {active_info}
 
 <b>Commands:</b>
 /adduser [id] - Tambah user
@@ -556,27 +587,37 @@ def tumbal_menu(call):
         bot.answer_callback_query(call.id, "⛔ Hanya untuk owner!")
         return
 
-    tumbal = data.get("tumbal_vps", {})
-    status = "✅ Aktif" if tumbal.get("enabled") else "❌ Tidak aktif"
-    ip = tumbal.get("ip", "-") or "-"
+    tumbal_list = data.get("tumbal_list", [])
+    active_tumbal = get_active_tumbal()
+    
+    # Build VPS list text
+    if tumbal_list:
+        vps_list_text = ""
+        for i, t in enumerate(tumbal_list, 1):
+            status = "🟢" if t["id"] == data.get("active_tumbal") else "⚪"
+            vps_list_text += f"{status} <b>{t['name']}</b> - <code>{t['ip']}</code>\n"
+    else:
+        vps_list_text = "Belum ada VPS tumbal terdaftar.\n"
 
     text = f"""🖥 <b>TUMBAL VPS MANAGER</b>
 ━━━━━━━━━━━━━━━━━━
 
-<b>Status:</b> {status}
-<b>IP:</b> <code>{ip}</code>
+<b>VPS Terdaftar:</b> {len(tumbal_list)}
+<b>Aktif:</b> {active_tumbal['name'] if active_tumbal else 'Belum dipilih'}
 
+{vps_list_text}
 <b>Apa itu Tumbal VPS?</b>
 VPS 8GB RAM khusus untuk build Windows image.
-Bot akan SSH ke VPS ini saat proses build.
+Bisa pakai banyak VPS untuk paralel build.
 
 <b>Commands:</b>
-<code>/settumbal [ip] [password]</code> - Set VPS tumbal
-<code>/testtumbal</code> - Test koneksi SSH
-<code>/deltumbal</code> - Hapus konfigurasi"""
+<code>/addtumbal [nama] [ip] [password]</code> - Tambah VPS
+<code>/deltumbal [id]</code> - Hapus VPS
+<code>/listtumbal</code> - Lihat semua VPS"""
 
     markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("🔧 Set Tumbal VPS", callback_data="tumbal_set"))
+    markup.add(types.InlineKeyboardButton("➕ Tambah Tumbal VPS", callback_data="tumbal_add"))
+    markup.add(types.InlineKeyboardButton("📋 List & Pilih VPS", callback_data="tumbal_select"))
     markup.add(types.InlineKeyboardButton("🔌 Test Koneksi", callback_data="tumbal_test"))
     markup.add(types.InlineKeyboardButton("🏗 Build Image", callback_data="tumbal_build"))
     markup.add(types.InlineKeyboardButton("📋 List Local Images", callback_data="tumbal_list"))
@@ -584,73 +625,284 @@ Bot akan SSH ke VPS ini saat proses build.
 
     bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
 
-# ==================== SET TUMBAL ====================
-@bot.callback_query_handler(func=lambda call: call.data == "tumbal_set")
-def tumbal_set_info(call):
+# ==================== ADD TUMBAL VPS ====================
+@bot.callback_query_handler(func=lambda call: call.data == "tumbal_add")
+def tumbal_add_info(call):
     if not is_owner(call.from_user.id):
         bot.answer_callback_query(call.id, "⛔ Hanya untuk owner!")
         return
 
-    text = """🔧 <b>SET TUMBAL VPS</b>
+    text = """➕ <b>TAMBAH TUMBAL VPS</b>
 ━━━━━━━━━━━━━━━━━━
 
 Gunakan command:
-<code>/settumbal [IP] [PASSWORD]</code>
+<code>/addtumbal [NAMA] [IP] [PASSWORD]</code>
 
 Contoh:
-<code>/settumbal 167.71.123.45 mypassword123</code>
+<code>/addtumbal Hetzner1 167.71.123.45 mypass123</code>
+<code>/addtumbal Contabo1 45.76.89.12 secret456</code>
 
 <b>Syarat VPS Tumbal:</b>
 • RAM minimal 8GB
 • Storage minimal 50GB
 • OS: Ubuntu 22.04 / Debian 12
-• Akses root via SSH"""
+• Akses root via SSH
+
+<b>Tips Provider:</b>
+• Hetzner, OVH, Contabo - toleran high CPU
+• DigitalOcean, Vultr - ok tapi monitor CPU"""
 
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("◀️ Kembali", callback_data="tumbal_menu"))
 
     bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
 
-@bot.message_handler(commands=['settumbal'])
-def set_tumbal(message):
+@bot.message_handler(commands=['addtumbal'])
+def add_tumbal(message):
     if not is_owner(message.from_user.id):
         bot.reply_to(message, "⛔ Hanya owner!")
         return
 
     try:
         parts = message.text.split()
-        if len(parts) < 3:
-            bot.reply_to(message, "❌ Format: /settumbal [IP] [PASSWORD]")
+        if len(parts) < 4:
+            bot.reply_to(message, "❌ Format: /addtumbal [NAMA] [IP] [PASSWORD]\nContoh: /addtumbal Hetzner1 167.71.123.45 mypass123")
             return
 
-        ip = parts[1]
-        password = parts[2]
+        name = parts[1]
+        ip = parts[2]
+        password = parts[3]
         
-        data["tumbal_vps"] = {
+        # Generate unique ID
+        tumbal_list = data.get("tumbal_list", [])
+        tumbal_id = f"tumbal{len(tumbal_list) + 1}_{ip.replace('.', '_')}"
+        
+        # Check if IP already exists
+        for t in tumbal_list:
+            if t["ip"] == ip:
+                bot.reply_to(message, f"⚠️ VPS dengan IP <code>{ip}</code> sudah terdaftar!", parse_mode="HTML")
+                return
+        
+        new_tumbal = {
+            "id": tumbal_id,
+            "name": name,
             "ip": ip,
             "password": password,
             "enabled": True
         }
+        
+        tumbal_list.append(new_tumbal)
+        data["tumbal_list"] = tumbal_list
+        
+        # Auto-set as active if this is the first one
+        if len(tumbal_list) == 1:
+            data["active_tumbal"] = tumbal_id
+        
         save_data(data)
         
-        bot.reply_to(message, f"""✅ <b>Tumbal VPS berhasil diset!</b>
+        bot.reply_to(message, f"""✅ <b>Tumbal VPS berhasil ditambahkan!</b>
 
+📛 <b>Nama:</b> {name}
 📍 <b>IP:</b> <code>{ip}</code>
+🔑 <b>ID:</b> <code>{tumbal_id}</code>
 
+Total VPS: {len(tumbal_list)}
 Gunakan /testtumbal untuk test koneksi SSH.""", parse_mode="HTML")
         
     except Exception as e:
         bot.reply_to(message, f"❌ Error: {str(e)}")
 
+# ==================== SELECT TUMBAL VPS ====================
+@bot.callback_query_handler(func=lambda call: call.data == "tumbal_select")
+def tumbal_select_menu(call):
+    if not is_owner(call.from_user.id):
+        bot.answer_callback_query(call.id, "⛔ Hanya untuk owner!")
+        return
+
+    tumbal_list = data.get("tumbal_list", [])
+    
+    if not tumbal_list:
+        bot.answer_callback_query(call.id, "❌ Belum ada VPS tumbal!")
+        return
+
+    text = """📋 <b>PILIH TUMBAL VPS AKTIF</b>
+━━━━━━━━━━━━━━━━━━
+
+Pilih VPS yang akan digunakan untuk build image.
+🟢 = Aktif sekarang"""
+
+    markup = types.InlineKeyboardMarkup()
+    for t in tumbal_list:
+        status = "🟢" if t["id"] == data.get("active_tumbal") else "⚪"
+        btn_text = f"{status} {t['name']} ({t['ip']})"
+        markup.add(types.InlineKeyboardButton(btn_text, callback_data=f"select_tumbal_{t['id']}"))
+    
+    markup.add(types.InlineKeyboardButton("🗑 Hapus VPS", callback_data="tumbal_delete_menu"))
+    markup.add(types.InlineKeyboardButton("◀️ Kembali", callback_data="tumbal_menu"))
+
+    bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("select_tumbal_"))
+def select_tumbal(call):
+    if not is_owner(call.from_user.id):
+        bot.answer_callback_query(call.id, "⛔ Hanya untuk owner!")
+        return
+
+    tumbal_id = call.data.replace("select_tumbal_", "")
+    tumbal = get_tumbal_by_id(tumbal_id)
+    
+    if not tumbal:
+        bot.answer_callback_query(call.id, "❌ VPS tidak ditemukan!")
+        return
+    
+    data["active_tumbal"] = tumbal_id
+    save_data(data)
+    
+    bot.answer_callback_query(call.id, f"✅ {tumbal['name']} dipilih sebagai VPS aktif!")
+    
+    # Refresh menu
+    tumbal_select_menu(call)
+
+# ==================== DELETE TUMBAL VPS ====================
+@bot.callback_query_handler(func=lambda call: call.data == "tumbal_delete_menu")
+def tumbal_delete_menu(call):
+    if not is_owner(call.from_user.id):
+        bot.answer_callback_query(call.id, "⛔ Hanya untuk owner!")
+        return
+
+    tumbal_list = data.get("tumbal_list", [])
+    
+    if not tumbal_list:
+        bot.answer_callback_query(call.id, "❌ Tidak ada VPS untuk dihapus!")
+        return
+
+    text = """🗑 <b>HAPUS TUMBAL VPS</b>
+━━━━━━━━━━━━━━━━━━
+
+Pilih VPS yang akan dihapus:"""
+
+    markup = types.InlineKeyboardMarkup()
+    for t in tumbal_list:
+        btn_text = f"❌ {t['name']} ({t['ip']})"
+        markup.add(types.InlineKeyboardButton(btn_text, callback_data=f"del_tumbal_{t['id']}"))
+    
+    markup.add(types.InlineKeyboardButton("◀️ Kembali", callback_data="tumbal_select"))
+
+    bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("del_tumbal_"))
+def delete_tumbal_btn(call):
+    if not is_owner(call.from_user.id):
+        bot.answer_callback_query(call.id, "⛔ Hanya untuk owner!")
+        return
+
+    tumbal_id = call.data.replace("del_tumbal_", "")
+    tumbal_list = data.get("tumbal_list", [])
+    
+    # Find and remove
+    new_list = [t for t in tumbal_list if t["id"] != tumbal_id]
+    
+    if len(new_list) == len(tumbal_list):
+        bot.answer_callback_query(call.id, "❌ VPS tidak ditemukan!")
+        return
+    
+    data["tumbal_list"] = new_list
+    
+    # Reset active if deleted
+    if data.get("active_tumbal") == tumbal_id:
+        data["active_tumbal"] = new_list[0]["id"] if new_list else ""
+    
+    save_data(data)
+    
+    bot.answer_callback_query(call.id, "✅ VPS berhasil dihapus!")
+    
+    # Go back to menu
+    if new_list:
+        tumbal_delete_menu(call)
+    else:
+        tumbal_menu(call)
+
 @bot.message_handler(commands=['deltumbal'])
-def del_tumbal(message):
+def del_tumbal_cmd(message):
     if not is_owner(message.from_user.id):
         bot.reply_to(message, "⛔ Hanya owner!")
         return
 
-    data["tumbal_vps"] = {"ip": "", "password": "", "enabled": False}
-    save_data(data)
-    bot.reply_to(message, "✅ Konfigurasi Tumbal VPS dihapus!")
+    try:
+        parts = message.text.split()
+        if len(parts) < 2:
+            # Show list
+            tumbal_list = data.get("tumbal_list", [])
+            if not tumbal_list:
+                bot.reply_to(message, "❌ Tidak ada VPS tumbal terdaftar!")
+                return
+            
+            text = "📋 <b>Daftar ID VPS Tumbal:</b>\n\n"
+            for t in tumbal_list:
+                text += f"• <code>{t['id']}</code> - {t['name']} ({t['ip']})\n"
+            text += "\nGunakan: /deltumbal [ID]"
+            bot.reply_to(message, text, parse_mode="HTML")
+            return
+
+        tumbal_id = parts[1]
+        tumbal_list = data.get("tumbal_list", [])
+        
+        # Find and remove
+        new_list = [t for t in tumbal_list if t["id"] != tumbal_id]
+        
+        if len(new_list) == len(tumbal_list):
+            bot.reply_to(message, "❌ ID tidak ditemukan!")
+            return
+        
+        data["tumbal_list"] = new_list
+        
+        # Reset active if deleted
+        if data.get("active_tumbal") == tumbal_id:
+            data["active_tumbal"] = new_list[0]["id"] if new_list else ""
+        
+        save_data(data)
+        bot.reply_to(message, f"✅ VPS <code>{tumbal_id}</code> berhasil dihapus!", parse_mode="HTML")
+        
+    except Exception as e:
+        bot.reply_to(message, f"❌ Error: {str(e)}")
+
+@bot.message_handler(commands=['listtumbal'])
+def list_tumbal(message):
+    if not is_owner(message.from_user.id):
+        bot.reply_to(message, "⛔ Hanya owner!")
+        return
+
+    tumbal_list = data.get("tumbal_list", [])
+    
+    if not tumbal_list:
+        bot.reply_to(message, "❌ Belum ada VPS tumbal terdaftar!\nGunakan /addtumbal [NAMA] [IP] [PASSWORD]")
+        return
+    
+    text = f"🖥 <b>DAFTAR TUMBAL VPS ({len(tumbal_list)})</b>\n━━━━━━━━━━━━━━━━━━\n\n"
+    
+    for t in tumbal_list:
+        status = "🟢 AKTIF" if t["id"] == data.get("active_tumbal") else "⚪"
+        text += f"{status}\n"
+        text += f"📛 <b>Nama:</b> {t['name']}\n"
+        text += f"📍 <b>IP:</b> <code>{t['ip']}</code>\n"
+        text += f"🔑 <b>ID:</b> <code>{t['id']}</code>\n\n"
+    
+    bot.reply_to(message, text, parse_mode="HTML")
+
+@bot.message_handler(commands=['settumbal'])
+def set_tumbal_legacy(message):
+    """Legacy command - redirect to addtumbal"""
+    if not is_owner(message.from_user.id):
+        bot.reply_to(message, "⛔ Hanya owner!")
+        return
+    
+    bot.reply_to(message, """⚠️ Command /settumbal sudah diganti!
+
+Gunakan:
+<code>/addtumbal [NAMA] [IP] [PASSWORD]</code>
+
+Contoh:
+<code>/addtumbal Hetzner1 167.71.123.45 mypass123</code>""", parse_mode="HTML")
 
 # ==================== TEST TUMBAL ====================
 @bot.callback_query_handler(func=lambda call: call.data == "tumbal_test")
@@ -659,17 +911,18 @@ def tumbal_test_btn(call):
         bot.answer_callback_query(call.id, "⛔ Hanya untuk owner!")
         return
     
-    tumbal = data.get("tumbal_vps", {})
-    if not tumbal.get("enabled"):
-        bot.answer_callback_query(call.id, "❌ Tumbal VPS belum diset!")
+    tumbal = get_active_tumbal()
+    if not tumbal:
+        bot.answer_callback_query(call.id, "❌ Belum ada VPS aktif! Tambah VPS dulu.")
         return
     
-    bot.answer_callback_query(call.id, "⏳ Testing koneksi SSH...")
+    bot.answer_callback_query(call.id, f"⏳ Testing {tumbal['name']}...")
     
     def test_ssh():
         try:
             ip = tumbal["ip"]
             password = tumbal["password"]
+            name = tumbal["name"]
             
             result = subprocess.run(
                 ["sshpass", "-p", password, "ssh", "-o", "StrictHostKeyChecking=no", 
@@ -680,12 +933,13 @@ def tumbal_test_btn(call):
             if "OK" in result.stdout:
                 bot.send_message(call.message.chat.id, f"""✅ <b>Koneksi SSH Berhasil!</b>
 
+📛 <b>Nama:</b> {name}
 📍 <b>IP:</b> <code>{ip}</code>
 
 <b>System Info:</b>
 <code>{result.stdout}</code>""", parse_mode="HTML")
             else:
-                bot.send_message(call.message.chat.id, f"❌ Koneksi gagal:\n<code>{result.stderr[:500]}</code>", parse_mode="HTML")
+                bot.send_message(call.message.chat.id, f"❌ Koneksi ke {name} gagal:\n<code>{result.stderr[:500]}</code>", parse_mode="HTML")
         except Exception as e:
             bot.send_message(call.message.chat.id, f"❌ Error: {str(e)}")
     
@@ -697,17 +951,18 @@ def test_tumbal_cmd(message):
         bot.reply_to(message, "⛔ Hanya owner!")
         return
     
-    tumbal = data.get("tumbal_vps", {})
-    if not tumbal.get("enabled"):
-        bot.reply_to(message, "❌ Tumbal VPS belum diset! Gunakan /settumbal [IP] [PASSWORD]")
+    tumbal = get_active_tumbal()
+    if not tumbal:
+        bot.reply_to(message, "❌ Belum ada VPS tumbal aktif!\nGunakan /addtumbal [NAMA] [IP] [PASSWORD]")
         return
     
-    bot.reply_to(message, "⏳ Testing koneksi SSH...")
+    bot.reply_to(message, f"⏳ Testing koneksi ke {tumbal['name']}...")
     
     def test_ssh():
         try:
             ip = tumbal["ip"]
             password = tumbal["password"]
+            name = tumbal["name"]
             
             result = subprocess.run(
                 ["sshpass", "-p", password, "ssh", "-o", "StrictHostKeyChecking=no",
@@ -718,6 +973,7 @@ def test_tumbal_cmd(message):
             if "OK" in result.stdout:
                 bot.send_message(message.chat.id, f"""✅ <b>Koneksi SSH Berhasil!</b>
 
+📛 <b>Nama:</b> {name}
 📍 <b>IP:</b> <code>{ip}</code>
 
 <b>System Info:</b>
@@ -736,13 +992,15 @@ def tumbal_build_menu(call):
         bot.answer_callback_query(call.id, "⛔ Hanya untuk owner!")
         return
 
-    tumbal = data.get("tumbal_vps", {})
-    if not tumbal.get("enabled"):
-        bot.answer_callback_query(call.id, "❌ Tumbal VPS belum diset!")
+    tumbal = get_active_tumbal()
+    if not tumbal:
+        bot.answer_callback_query(call.id, "❌ Belum ada VPS aktif! Tambah VPS dulu.")
         return
 
-    text = """🏗 <b>BUILD WINDOWS IMAGE</b>
+    text = f"""🏗 <b>BUILD WINDOWS IMAGE</b>
 ━━━━━━━━━━━━━━━━━━
+
+<b>VPS Aktif:</b> {tumbal['name']} ({tumbal['ip']})
 
 Proses ini akan:
 1. SSH ke Tumbal VPS
@@ -811,20 +1069,21 @@ def build_image_cmd(message):
         bot.reply_to(message, f"❌ Error: {str(e)}")
 
 def start_build_image(chat_id, win_code):
-    tumbal = data.get("tumbal_vps", {})
-    if not tumbal.get("enabled"):
-        bot.send_message(chat_id, "❌ Tumbal VPS belum diset! Gunakan /settumbal [IP] [PASSWORD]")
+    tumbal = get_active_tumbal()
+    if not tumbal:
+        bot.send_message(chat_id, "❌ Belum ada VPS tumbal aktif!\nGunakan /addtumbal [NAMA] [IP] [PASSWORD]")
         return
     
     win_name = WINDOWS_OPTIONS.get(win_code, "Unknown")
     ip = tumbal["ip"]
     password = tumbal["password"]
+    name = tumbal["name"]
     
     bot.send_message(chat_id, f"""🏗 <b>Memulai Build Image</b>
 ━━━━━━━━━━━━━━━━━━
 
 🪟 <b>Windows:</b> {win_name}
-📍 <b>Tumbal VPS:</b> <code>{ip}</code>
+📍 <b>Tumbal VPS:</b> {name} (<code>{ip}</code>)
 
 ⏳ Menghubungkan ke VPS...
 Proses ini bisa memakan waktu 30-60 menit.""", parse_mode="HTML")
@@ -864,6 +1123,7 @@ echo "BUILD_COMPLETE"
                 bot.send_message(chat_id, f"""✅ <b>Build Selesai!</b>
 
 🪟 <b>Windows:</b> {win_name}
+📍 <b>VPS:</b> {name}
 📁 <b>Lokasi:</b> /root/rdp-images/
 
 Gunakan menu Google Drive untuk upload ke cloud.""", parse_mode="HTML")
@@ -886,17 +1146,18 @@ def tumbal_list_images(call):
         bot.answer_callback_query(call.id, "⛔ Hanya untuk owner!")
         return
     
-    tumbal = data.get("tumbal_vps", {})
-    if not tumbal.get("enabled"):
-        bot.answer_callback_query(call.id, "❌ Tumbal VPS belum diset!")
+    tumbal = get_active_tumbal()
+    if not tumbal:
+        bot.answer_callback_query(call.id, "❌ Belum ada VPS aktif! Tambah VPS dulu.")
         return
     
-    bot.answer_callback_query(call.id, "⏳ Mengambil daftar images...")
+    bot.answer_callback_query(call.id, f"⏳ Mengambil images dari {tumbal['name']}...")
     
     def list_images():
         try:
             ip = tumbal["ip"]
             password = tumbal["password"]
+            name = tumbal["name"]
             
             result = subprocess.run(
                 ["sshpass", "-p", password, "ssh", "-o", "StrictHostKeyChecking=no",
@@ -905,13 +1166,17 @@ def tumbal_list_images(call):
             )
             
             if "EMPTY" in result.stdout or not result.stdout.strip():
-                text = """📋 <b>LOCAL IMAGES DI TUMBAL VPS</b>
+                text = f"""📋 <b>LOCAL IMAGES DI {name.upper()}</b>
 ━━━━━━━━━━━━━━━━━━
+
+📍 IP: <code>{ip}</code>
 
 Folder kosong. Belum ada image yang dibuild."""
             else:
-                text = f"""📋 <b>LOCAL IMAGES DI TUMBAL VPS</b>
+                text = f"""📋 <b>LOCAL IMAGES DI {name.upper()}</b>
 ━━━━━━━━━━━━━━━━━━
+
+📍 IP: <code>{ip}</code>
 
 <code>{result.stdout}</code>"""
             
