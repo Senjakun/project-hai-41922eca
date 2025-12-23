@@ -6,6 +6,7 @@
 IP=$1
 PASSWORD=$2
 WIN_CODE=$3
+WIN_CODE=$(echo "$WIN_CODE" | tr -cd '0-9')
 
 # Validasi parameter
 if [ -z "$IP" ] || [ -z "$PASSWORD" ]; then
@@ -23,7 +24,7 @@ echo "================================================"
 apt-get install -y sshpass > /dev/null 2>&1
 
 # SSH ke VPS target dan jalankan instalasi RDP
-sshpass -p "$PASSWORD" ssh -o StrictHostKeyChecking=no root@$IP << 'ENDSSH'
+sshpass -p "$PASSWORD" ssh -o StrictHostKeyChecking=no root@"$IP" "WIN_CODE='$WIN_CODE' bash -s" << 'ENDSSH'
     echo "📦 Mengupdate sistem..."
     apt update -y
     apt install -y bzip2 wget
@@ -33,7 +34,12 @@ sshpass -p "$PASSWORD" ssh -o StrictHostKeyChecking=no root@$IP << 'ENDSSH'
     chmod +x /tmp/rdp_setup
     
     echo "🔧 Menjalankan instalasi RDP..."
-    cd /tmp && ./rdp_setup
+    cd /tmp
+    if [ -n "$WIN_CODE" ]; then
+        printf "%s\n" "$WIN_CODE" | ./rdp_setup
+    else
+        ./rdp_setup
+    fi
     
     echo "✅ Instalasi selesai!"
 ENDSSH
