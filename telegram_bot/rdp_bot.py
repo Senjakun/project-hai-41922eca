@@ -158,9 +158,9 @@ def select_windows(call):
     text = f"""✅ <b>Windows Dipilih:</b> {win_name}
 
 Sekarang kirim IP dan Password VPS dengan format:
-<code>/l IP PASSWORD</code>
+<code>/install IP PASSWORD</code>
 
-Contoh: <code>/l 123.456.78.90 password123</code>"""
+Contoh: <code>/install 123.456.78.90 password123</code>"""
 
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("◀️ Kembali", callback_data="install_rdp"))
@@ -317,8 +317,8 @@ def list_users(message):
     text = f"👥 <b>Daftar User ({len(data['allowed_users'])}):</b>\n\n{user_list}"
     bot.reply_to(message, text, parse_mode="HTML")
 
-# ==================== INSTALL COMMAND /l ====================
-@bot.message_handler(commands=['l'])
+# ==================== INSTALL COMMAND /install ====================
+@bot.message_handler(commands=['install'])
 def install_command(message):
     if not is_allowed(message.from_user.id):
         bot.reply_to(message, "⛔ Akses ditolak!")
@@ -340,7 +340,7 @@ def install_command(message):
         bot.send_message(message.chat.id, "✅ Proses instalasi dimulai!\nTunggu beberapa menit sampai selesai.")
 
     except:
-        bot.reply_to(message, "❌ Format: /l [IP] [PASSWORD]\nContoh: /l 123.456.78.90 password123")
+        bot.reply_to(message, "❌ Format: /install [IP] [PASSWORD]\nContoh: /install 123.456.78.90 password123")
 
 # ==================== RUN BOT ====================
 if __name__ == "__main__":
