@@ -49,7 +49,7 @@ RDP_TYPES = {
     },
     "dedicated": {
         "name": "🖥 Dedicated RDP", 
-        "desc": "• Windows langsung di VPS (15-30 menit)\n• Performa optimal\n• Port 3389\n• Cocok untuk production use"
+        "desc": "• Windows langsung di VPS (15-30 menit)\n• Performa optimal\n• Port 22 (custom untuk keamanan)\n• Cocok untuk production use"
     }
 }
 
@@ -86,7 +86,7 @@ RDP_TYPE_MENU_TEXT = """🖥 <b>Pilih Jenis RDP Installation:</b>
 🖥 <b>Dedicated RDP</b> - 1 kuota
 • Windows langsung di VPS (15-30 menit)
 • Performa optimal
-• Port 3389
+• Port 22 (custom untuk keamanan)
 • Cocok untuk production use"""
 
 WINDOWS_MENU_TEXT = """🖥 <b>Silahkan Pilih Versi Windows Anda</b> 🖥
