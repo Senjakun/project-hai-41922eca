@@ -13,6 +13,7 @@ from telebot import types
 import json
 import os
 import subprocess
+import threading
 
 # ==================== KONFIGURASI ====================
 BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"  # Ganti di VPS, jangan di sini!
@@ -430,16 +431,14 @@ def install_command(message):
         type_name = RDP_TYPES[rdp_type]["name"]
         win_name = WINDOWS_OPTIONS[win_code]
         
-        status_msg = bot.reply_to(
+        # Kirim pesan awal
+        bot.reply_to(
             message, 
-            f"""⏳ <b>Memulai Instalasi RDP...</b>
-━━━━━━━━━━━━━━━━━━
+            f"""🔌 <b>Menghubungkan ke VPS...</b>
 
 📦 <b>Tipe:</b> {type_name}
 📍 <b>IP:</b> <code>{ip}</code>
-🪟 <b>Windows:</b> {win_name} ({win_code})
-
-⌛ Mohon tunggu, proses ini membutuhkan beberapa menit...""", 
+🪟 <b>Windows:</b> {win_name} ({win_code})""", 
             parse_mode="HTML"
         )
 
@@ -457,129 +456,81 @@ def install_command(message):
 
         subprocess.run(["chmod", "+x", script_path], check=False)
         
-        # Jalankan script dan tunggu hasilnya
-        try:
-            result = subprocess.run(
-                ["bash", script_path, ip, password, win_code],
-                capture_output=True,
-                text=True,
-                timeout=1800  # 30 menit timeout untuk dedicated
-            )
-            
-            output = result.stdout + result.stderr
-            exit_code = result.returncode
-            
-            # Simpan log
-            log_path = os.path.join(script_dir, "rdp_install.log")
-            with open(log_path, "a") as log:
-                log.write(f"\n{'='*50}\n")
-                log.write(f"User: {message.from_user.id} | IP: {ip} | OS: {win_code} | Type: {rdp_type}\n")
-                log.write(output)
-                log.write(f"\nExit code: {exit_code}\n")
-            
-            # Kirim hasil ke user
-            if exit_code == 0:
-                if rdp_type == "docker":
-                    success_text = f"""✅ <b>INSTALASI BERHASIL!</b>
-━━━━━━━━━━━━━━━━━━
-
-📦 <b>Tipe:</b> {type_name}
-📍 <b>IP:</b> <code>{ip}</code>
-🪟 <b>Windows:</b> {win_name}
-
-🎉 RDP sudah terinstall!
-
-<b>Akses RDP:</b>
-• IP: <code>{ip}</code>
-• Port RDP: <code>3389</code>
-• Port Web: <code>8006</code>
-
-<b>Kredensial Default:</b>
-• Username: <code>Administrator</code>
-• Password: <code>{password}</code>
-
-<b>Web Interface:</b>
-http://{ip}:8006"""
-                else:
-                    success_text = f"""✅ <b>INSTALASI BERHASIL!</b>
-━━━━━━━━━━━━━━━━━━
-
-📦 <b>Tipe:</b> {type_name}
-📍 <b>IP:</b> <code>{ip}</code>
-🪟 <b>Windows:</b> {win_name}
-
-🎉 RDP sudah terinstall!
-
-<b>Akses RDP:</b>
-• IP: <code>{ip}</code>
-• Port: <code>3389</code>
-
-<b>Kredensial Default:</b>
-• Username: <code>Administrator</code>
-• Password: <code>{password}</code>"""
-                bot.send_message(message.chat.id, success_text, parse_mode="HTML")
-            else:
-                # Deteksi jenis error
-                error_reason = "Unknown error"
-                if "Connection timed out" in output:
-                    error_reason = "❌ Koneksi timeout - VPS tidak bisa dihubungi"
-                elif "Connection refused" in output:
-                    error_reason = "❌ Koneksi ditolak - Port SSH tidak terbuka"
-                elif "Permission denied" in output:
-                    error_reason = "❌ Password salah atau akses ditolak"
-                elif "Host key verification failed" in output:
-                    error_reason = "❌ Host key verification gagal"
-                elif "Connection closed" in output or "closed by remote host" in output:
-                    error_reason = "❌ Koneksi terputus oleh VPS"
-                elif "No route to host" in output:
-                    error_reason = "❌ VPS tidak dapat dijangkau"
-                elif "out of memory" in output.lower() or "cannot allocate" in output.lower():
-                    error_reason = "❌ VPS kehabisan RAM"
-                elif "disk" in output.lower() and "full" in output.lower():
-                    error_reason = "❌ Disk VPS penuh"
+        chat_id = str(message.chat.id)
+        
+        # Fungsi untuk jalankan instalasi di background
+        def run_install():
+            try:
+                log_path = os.path.join(script_dir, "rdp_install.log")
                 
-                error_text = f"""❌ <b>INSTALASI GAGAL!</b>
-━━━━━━━━━━━━━━━━━━
-
-📦 <b>Tipe:</b> {type_name}
-📍 <b>IP:</b> <code>{ip}</code>
-🪟 <b>Windows:</b> {win_name}
-
-<b>Penyebab:</b>
-{error_reason}
-
-<b>Solusi:</b>
-1. Pastikan IP VPS benar
-2. Pastikan password benar
-3. Pastikan VPS menyala
-4. Pastikan port 22 (SSH) terbuka
-5. Pastikan VPS punya RAM minimal 2GB
-6. Coba lagi dalam beberapa menit"""
-                bot.send_message(message.chat.id, error_text, parse_mode="HTML")
+                result = subprocess.run(
+                    ["bash", script_path, ip, password, win_code, chat_id, BOT_TOKEN],
+                    capture_output=True,
+                    text=True,
+                    timeout=2400  # 40 menit timeout
+                )
                 
-        except subprocess.TimeoutExpired:
-            timeout_text = f"""⏰ <b>TIMEOUT!</b>
+                output = result.stdout + result.stderr
+                exit_code = result.returncode
+                
+                # Simpan log
+                with open(log_path, "a") as log:
+                    log.write(f"\n{'='*50}\n")
+                    log.write(f"User: {message.from_user.id} | IP: {ip} | OS: {win_code} | Type: {rdp_type}\n")
+                    log.write(output)
+                    log.write(f"\nExit code: {exit_code}\n")
+                    
+            except subprocess.TimeoutExpired:
+                bot.send_message(
+                    message.chat.id, 
+                    f"""⏰ <b>TIMEOUT!</b>
 ━━━━━━━━━━━━━━━━━━
 
-📦 <b>Tipe:</b> {type_name}
 📍 <b>IP:</b> <code>{ip}</code>
 🪟 <b>Windows:</b> {win_name}
 
 Proses melebihi batas waktu.
 Kemungkinan instalasi masih berjalan di VPS.
 
-Coba cek VPS secara manual."""
-            bot.send_message(message.chat.id, timeout_text, parse_mode="HTML")
-            
-        except Exception as e:
-            error_text = f"""⚠️ <b>ERROR!</b>
+Coba cek VPS secara manual.""",
+                    parse_mode="HTML"
+                )
+            except Exception as e:
+                bot.send_message(
+                    message.chat.id,
+                    f"""⚠️ <b>ERROR!</b>
 ━━━━━━━━━━━━━━━━━━
 
-Terjadi error saat menjalankan instalasi:
-<code>{str(e)}</code>
+Terjadi error: <code>{str(e)}</code>
 
-Silakan coba lagi atau hubungi owner."""
-            bot.send_message(message.chat.id, error_text, parse_mode="HTML")
+Silakan coba lagi.""",
+                    parse_mode="HTML"
+                )
+        
+        # Jalankan di background thread
+        install_thread = threading.Thread(target=run_install, daemon=True)
+        install_thread.start()
+        
+        # Kirim konfirmasi
+        bot.send_message(
+            message.chat.id,
+            f"""🚀 <b>Proses Instalasi Dimulai!</b>
+━━━━━━━━━━━━━━━━━━
+
+📦 <b>Tipe:</b> {type_name}
+📍 <b>IP:</b> <code>{ip}</code>
+🪟 <b>Windows:</b> {win_name}
+
+⏳ Instalasi berjalan di background.
+Kamu akan menerima notifikasi saat selesai.
+
+<b>Estimasi waktu:</b>
+• Docker RDP: 10-15 menit
+• Dedicated RDP: 15-30 menit
+
+💡 Kamu bisa menutup chat ini, notifikasi akan dikirim otomatis.""",
+            parse_mode="HTML"
+        )
 
     except Exception:
         bot.reply_to(message, "❌ Format: /install [IP] [PASSWORD]\nContoh: /install 167.71.123.45 password123")
