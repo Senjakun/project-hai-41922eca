@@ -368,7 +368,7 @@ def install_command(message):
             return
 
         win_name = WINDOWS_OPTIONS[win_code]
-        bot.reply_to(message, f"⏳ Memulai instalasi RDP...\nIP: {ip}\nWindows: {win_name} ({win_code})")
+        status_msg = bot.reply_to(message, f"⏳ Memulai instalasi RDP...\nIP: <code>{ip}</code>\nWindows: {win_name} ({win_code})\n\n⌛ Mohon tunggu, proses ini membutuhkan beberapa menit...", parse_mode="HTML")
 
         # Jalankan script instalasi (pakai path absolut agar tidak tergantung folder saat menjalankan bot)
         script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -379,15 +379,98 @@ def install_command(message):
             return
 
         subprocess.run(["chmod", "+x", script_path], check=False)
-        with open(os.path.join(script_dir, "rdp_install.log"), "ab") as log:
-            subprocess.Popen(
+        
+        # Jalankan script dan tunggu hasilnya
+        try:
+            result = subprocess.run(
                 ["bash", script_path, ip, password, win_code],
-                stdout=log,
-                stderr=log,
-                start_new_session=True,
+                capture_output=True,
+                text=True,
+                timeout=600  # 10 menit timeout
             )
+            
+            output = result.stdout + result.stderr
+            exit_code = result.returncode
+            
+            # Simpan log
+            log_path = os.path.join(script_dir, "rdp_install.log")
+            with open(log_path, "a") as log:
+                log.write(f"\n{'='*50}\n")
+                log.write(f"User: {message.from_user.id} | IP: {ip} | OS: {win_code}\n")
+                log.write(output)
+                log.write(f"\nExit code: {exit_code}\n")
+            
+            # Kirim hasil ke user
+            if exit_code == 0:
+                success_text = f"""✅ <b>INSTALASI BERHASIL!</b>
+━━━━━━━━━━━━━━━━━━
 
-        bot.send_message(message.chat.id, "✅ Proses instalasi dimulai!\nTunggu beberapa menit sampai selesai.")
+📍 <b>IP:</b> <code>{ip}</code>
+🪟 <b>Windows:</b> {win_name}
+
+🎉 RDP sudah terinstall!
+Gunakan Remote Desktop untuk connect.
+
+<b>Kredensial Default:</b>
+• Username: <code>Administrator</code>
+• Password: <code>{password}</code>
+• Port: <code>3389</code>"""
+                bot.send_message(message.chat.id, success_text, parse_mode="HTML")
+            else:
+                # Deteksi jenis error
+                error_reason = "Unknown error"
+                if "Connection timed out" in output:
+                    error_reason = "❌ Koneksi timeout - VPS tidak bisa dihubungi"
+                elif "Connection refused" in output:
+                    error_reason = "❌ Koneksi ditolak - Port SSH tidak terbuka"
+                elif "Permission denied" in output:
+                    error_reason = "❌ Password salah atau akses ditolak"
+                elif "Host key verification failed" in output:
+                    error_reason = "❌ Host key verification gagal"
+                elif "Connection closed" in output or "closed by remote host" in output:
+                    error_reason = "❌ Koneksi terputus oleh VPS"
+                elif "No route to host" in output:
+                    error_reason = "❌ VPS tidak dapat dijangkau"
+                
+                error_text = f"""❌ <b>INSTALASI GAGAL!</b>
+━━━━━━━━━━━━━━━━━━
+
+📍 <b>IP:</b> <code>{ip}</code>
+🪟 <b>Windows:</b> {win_name}
+
+<b>Penyebab:</b>
+{error_reason}
+
+<b>Solusi:</b>
+1. Pastikan IP VPS benar
+2. Pastikan password benar
+3. Pastikan VPS menyala
+4. Pastikan port 22 (SSH) terbuka
+5. Coba lagi dalam beberapa menit"""
+                bot.send_message(message.chat.id, error_text, parse_mode="HTML")
+                
+        except subprocess.TimeoutExpired:
+            timeout_text = f"""⏰ <b>TIMEOUT!</b>
+━━━━━━━━━━━━━━━━━━
+
+📍 <b>IP:</b> <code>{ip}</code>
+🪟 <b>Windows:</b> {win_name}
+
+Proses melebihi batas waktu 10 menit.
+Kemungkinan instalasi masih berjalan di VPS.
+
+Coba cek VPS secara manual."""
+            bot.send_message(message.chat.id, timeout_text, parse_mode="HTML")
+            
+        except Exception as e:
+            error_text = f"""⚠️ <b>ERROR!</b>
+━━━━━━━━━━━━━━━━━━
+
+Terjadi error saat menjalankan instalasi:
+<code>{str(e)}</code>
+
+Silakan coba lagi atau hubungi owner."""
+            bot.send_message(message.chat.id, error_text, parse_mode="HTML")
 
     except Exception:
         bot.reply_to(message, "❌ Format: /install [IP] [PASSWORD]\nContoh: /install 167.71.123.45 password123")
