@@ -109,15 +109,15 @@ fi
 echo "📥 Downloading RDP installer..."
 cd /tmp
 
-# Download installer
-wget -q https://github.com/Bintang73/auto-install-rdp/raw/refs/heads/main/main -O rdp_setup
-chmod +x rdp_setup
+# Download installer (gunakan install.sh yang benar)
+wget -q https://raw.githubusercontent.com/Bintang73/auto-install-rdp/main/install.sh -O install.sh
+chmod +x install.sh
 
 echo "🔧 Installing RDP (this takes 15-30 minutes)..."
 if [ -n "$WIN_CODE" ]; then
-    printf "%s\n" "$WIN_CODE" | timeout 1800 ./rdp_setup
+    printf "%s\n" "$WIN_CODE" | timeout 1800 ./install.sh
 else
-    timeout 1800 ./rdp_setup
+    timeout 1800 ./install.sh
 fi
 
 echo "INSTALL_SUCCESS"
