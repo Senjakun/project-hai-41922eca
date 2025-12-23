@@ -16,5 +16,5 @@ jobs:
 
       - name: Push to old repo
         run: |
-          git remote add mirror https://${{ secrets.MIRROR_TOKEN }}@github.com/AzrielRd662/telegram-rdpquin.git
+          git remote add mirror https://${{ secrets.MIRROR_TOKEN }}@github.com/Senjakun/telegram-rdpquin.git
           git push mirror main --force
