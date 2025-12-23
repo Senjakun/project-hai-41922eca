@@ -347,6 +347,8 @@ def owner_settings(call):
 /deluser [id] - Hapus user  
 /setowner [link] - Set link owner
 /setchannel [link] - Set link channel
+/settoken [token] - Ganti bot token
+/setownerid [id] - Ganti owner ID
 /listuser - Lihat daftar user"""
 
     markup = types.InlineKeyboardMarkup()
@@ -424,6 +426,71 @@ def set_channel_link(message):
         bot.reply_to(message, f"✅ Channel link diubah ke:\n{link}")
     except IndexError:
         bot.reply_to(message, "❌ Format: /setchannel [link]")
+
+# ==================== SET BOT TOKEN ====================
+@bot.message_handler(commands=['settoken'])
+def set_bot_token(message):
+    if not is_owner(message.from_user.id):
+        bot.reply_to(message, "⛔ Hanya owner!")
+        return
+
+    try:
+        new_token = message.text.split(maxsplit=1)[1]
+        
+        # Update di file rdp_bot.py
+        bot_file = os.path.abspath(__file__)
+        with open(bot_file, 'r') as f:
+            content = f.read()
+        
+        import re
+        content = re.sub(r'BOT_TOKEN = ".*?"', f'BOT_TOKEN = "{new_token}"', content)
+        
+        with open(bot_file, 'w') as f:
+            f.write(content)
+        
+        bot.reply_to(message, f"""✅ <b>Bot Token berhasil diubah!</b>
+
+🔑 Token baru: <code>{new_token[:10]}...{new_token[-5:]}</code>
+
+⚠️ <b>PENTING:</b> Restart bot untuk menerapkan perubahan!
+<code>systemctl restart rdpbot</code>""", parse_mode="HTML")
+    except IndexError:
+        bot.reply_to(message, "❌ Format: /settoken [token_baru]\nContoh: /settoken 123456:ABC-xyz")
+
+# ==================== SET OWNER ID ====================
+@bot.message_handler(commands=['setownerid'])
+def set_owner_id(message):
+    if not is_owner(message.from_user.id):
+        bot.reply_to(message, "⛔ Hanya owner!")
+        return
+
+    try:
+        new_owner = int(message.text.split()[1])
+        
+        # Update di file rdp_bot.py
+        bot_file = os.path.abspath(__file__)
+        with open(bot_file, 'r') as f:
+            content = f.read()
+        
+        import re
+        content = re.sub(r'OWNER_ID = \d+', f'OWNER_ID = {new_owner}', content)
+        
+        with open(bot_file, 'w') as f:
+            f.write(content)
+        
+        # Tambahkan owner baru ke allowed_users jika belum ada
+        if new_owner not in data["allowed_users"]:
+            data["allowed_users"].append(new_owner)
+            save_data(data)
+        
+        bot.reply_to(message, f"""✅ <b>Owner ID berhasil diubah!</b>
+
+👤 Owner baru: <code>{new_owner}</code>
+
+⚠️ <b>PENTING:</b> Restart bot untuk menerapkan perubahan!
+<code>systemctl restart rdpbot</code>""", parse_mode="HTML")
+    except (IndexError, ValueError):
+        bot.reply_to(message, "❌ Format: /setownerid [telegram_id]\nContoh: /setownerid 123456789")
 
 # ==================== LIST USER ====================
 @bot.message_handler(commands=['listuser'])
