@@ -1,0 +1,20 @@
+name: Mirror to Old Repo
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Push to old repo
+        run: |
+          git remote add mirror https://${{ secrets.MIRROR_TOKEN }}@github.com/AzrielRd662/telegram-rdpquin.git
+          git push mirror main --force
